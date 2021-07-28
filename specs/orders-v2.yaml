@@ -1,0 +1,63 @@
+openapi: 3.0.3
+info:
+  title: Orders API
+  version: 1.5.0
+security:
+  - oauth: [orders:read]
+paths:
+  /orders/{orderId}:
+    get:
+      operationId: getOrder
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { description: Not found }
+  /orders:
+    get:
+      operationId: listOrders
+      parameters:
+        - { name: customerId, in: query, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, maximum: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Page of orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Order' } }
+                  nextCursor: { type: string }
+components:
+  securitySchemes:
+    oauth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.com/token
+          scopes: { 'orders:read': read orders }
+  parameters:
+    OrderId: { name: orderId, in: path, required: true, schema: { type: string } }
+  schemas:
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: integer, description: minor units }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+    Order:
+      type: object
+      required: [id, status, total, placedAt]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [PLACED, PAID, PARTIALLY_SHIPPED, SHIPPED, DELIVERED, CANCELLED] }
+        total: { $ref: '#/components/schemas/Money' }
+        placedAt: { type: string, format: date-time }
+        fulfillment: { type: string, enum: [SHIP, PICKUP] }

@@ -1,0 +1,44 @@
+name: api-contract
+
+on:
+  pull_request:
+    paths: ["specs/**"]
+
+jobs:
+  openapi-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-java@v2
+        with: { distribution: temurin, java-version: "17", cache: maven }
+      - run: mvn -q -DskipTests package
+      - name: compare against main
+        run: |
+          git show origin/${{ github.base_ref }}:specs/orders-v2.yaml > /tmp/base.yaml
+          java -cp "target/classes:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout)" \
+            com.ericguerra.contractguard.Cli /tmp/base.yaml specs/orders-v2.yaml \
+            --allow "${{ contains(github.event.pull_request.labels.*.name, 'breaking-change-approved') && 'response-field-removed,enum-value-added' || 'none' }}" \
+            --format markdown | tee report.md
+      - name: comment
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with: { path: report.md, header: api-contract }
+
+  pact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-java@v2
+        with: { distribution: temurin, java-version: "17", cache: maven }
+      - run: mvn -q test -Dtest=CheckoutOrdersPactTest
+      - name: publish pact
+        run: |
+          docker run --rm -v "$PWD/target/pacts:/pacts" pactfoundation/pact-cli:latest \
+            publish /pacts --consumer-app-version "${{ github.sha }}" --branch "${{ github.head_ref }}" \
+            --broker-base-url "${{ secrets.PACT_BROKER_URL }}" --broker-token "${{ secrets.PACT_BROKER_TOKEN }}"
+      - name: can-i-deploy
+        run: |
+          docker run --rm pactfoundation/pact-cli:latest broker can-i-deploy \
+            --pacticipant checkout --version "${{ github.sha }}" --to-environment production \
+            --broker-base-url "${{ secrets.PACT_BROKER_URL }}" --broker-token "${{ secrets.PACT_BROKER_TOKEN }}"
